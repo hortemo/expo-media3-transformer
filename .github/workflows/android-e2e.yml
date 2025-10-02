@@ -62,7 +62,9 @@ jobs:
           disable-animations: true
           working-directory: example
           script: |
-            ./android/gradlew assembleDebug
+            cd android
+            ./gradlew assembleDebug
+            cd ..
             adb wait-for-device
             adb install -r android/app/build/outputs/apk/debug/app-debug.apk
             maestro --version
