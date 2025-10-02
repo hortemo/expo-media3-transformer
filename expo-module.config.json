@@ -1,0 +1,9 @@
+{
+  "platforms": ["apple", "android", "web"],
+  "apple": {
+    "modules": ["Media3TransformerModule"]
+  },
+  "android": {
+    "modules": ["expo.modules.media3transformer.Media3TransformerModule"]
+  }
+}
