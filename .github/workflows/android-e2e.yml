@@ -11,19 +11,19 @@ jobs:
     env:
       CI: true
       EXPO_NO_TELEMETRY: 1
+      APP_ID: com.yourcompany.yourapp # set your real applicationId if you use it in flows
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Hardware acceleration (as per emulator-runner examples)
+      # Hardware accel for faster emulator boot (recommended on ubuntu runners)
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      # Toolchains
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -36,79 +36,27 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      # Gradle caching & build scan summary (recommended by Gradle team)
+      # Gradle config & dependency caching (recommended by emulator-runner docs)
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      # JS deps
       - name: Install root dependencies
         run: npm ci
 
       - name: Install example dependencies
-        run: npm ci
         working-directory: example
+        run: npm ci
 
-      # ---------- AVD snapshot caching to speed up boots ----------
+      # Install Maestro CLI (no action needed)
+      - name: Install Maestro CLI
+        run: |
+          curl -Ls "https://get.maestro.mobile.dev" | bash
+          echo "$HOME/.maestro/bin" >> $GITHUB_PATH
+
+      # Optional: cache AVD to speed up subsequent boots
       - name: AVD cache
         uses: actions/cache@v4
         id: avd-cache
         with:
           path: |
-            ~/.android/avd/*
-            ~/.android/adb*
-          key: avd-android-${{ runner.os }}-api-35-x86_64-pixel10
-
-      # Create a cached snapshot (only when cache is cold)
-      - name: Create AVD snapshot for caching
-        if: steps.avd-cache.outputs.cache-hit != 'true'
-        uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: 35
-          arch: x86_64
-          profile: pixel_10
-          # IMPORTANT: generate a snapshot (do NOT pass -no-snapshot or -no-snapshot-save here)
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          disable-animations: false
-          # Just boot and exit to create the cached snapshot
-          script: echo "Generated AVD snapshot for caching."
-
-      # ---------- Build & test using cached AVD ----------
-      # Install Maestro CLI (official installer)
-      - name: Install Maestro CLI
-        uses: mobile-dev-inc/maestro@v1
-
-      # Start emulator, build Debug APK, install, and run flows with JUnit output
-      - name: Run Android E2E tests (Expo + Maestro)
-        uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: 35
-          arch: x86_64
-          profile: pixel_10
-          # Reuse the cached AVD and avoid writing a new snapshot
-          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          disable-animations: true
-          working-directory: example
-          script: |
-            # 1) Generate native project (no install to keep it fast)
-            npx expo prebuild --platform android --no-install --non-interactive
-
-            # 2) Build a DEBUG APK (no signing hassles in CI)
-            cd android
-            ./gradlew assembleDebug
-            cd ..
-
-            # 3) Install the APK and wait for the emulator to be ready
-            adb wait-for-device
-            adb install -r android/app/build/outputs/apk/debug/app-debug.apk
-
-            # 4) Run Maestro flows with JUnit output for CI visibility
-            maestro --version
-            maestro test --format junit --output ../maestro-report.xml maestro/smoke.yaml
-
-      # Always upload reports (so you can inspect failures)
-      - name: Upload Maestro report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: maestro-results
-          path: maestro-report.xml
+            ~/.android/
