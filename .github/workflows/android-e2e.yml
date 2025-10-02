@@ -47,6 +47,10 @@ jobs:
           curl -Ls "https://get.maestro.mobile.dev" | bash
           echo "$HOME/.maestro/bin" >> $GITHUB_PATH
 
+      - name: Expo Prebuild Android project
+        working-directory: example
+        run: npx expo prebuild --platform android --no-install
+
       - name: Run Android E2E tests (Expo + Maestro)
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -58,10 +62,7 @@ jobs:
           disable-animations: true
           working-directory: example
           script: |
-            npx expo prebuild --platform android --no-install --non-interactive
-            cd android
-            ./gradlew assembleDebug
-            cd ..
+            ./android/gradlew assembleDebug
             adb wait-for-device
             adb install -r android/app/build/outputs/apk/debug/app-debug.apk
             maestro --version
