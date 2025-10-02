@@ -11,13 +11,13 @@ jobs:
     env:
       CI: true
       EXPO_NO_TELEMETRY: 1
-      APP_ID: com.yourcompany.yourapp # set your real applicationId if you use it in flows
+      APP_ID: com.yourcompany.yourapp # update if referenced in flows
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Hardware accel for faster emulator boot (recommended on ubuntu runners)
+      # Hardware acceleration for the emulator
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -28,17 +28,12 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
 
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
-
-      # Gradle config & dependency caching (recommended by emulator-runner docs)
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
 
       - name: Install root dependencies
         run: npm ci
@@ -47,16 +42,34 @@ jobs:
         working-directory: example
         run: npm ci
 
-      # Install Maestro CLI (no action needed)
       - name: Install Maestro CLI
         run: |
           curl -Ls "https://get.maestro.mobile.dev" | bash
           echo "$HOME/.maestro/bin" >> $GITHUB_PATH
 
-      # Optional: cache AVD to speed up subsequent boots
-      - name: AVD cache
-        uses: actions/cache@v4
-        id: avd-cache
+      - name: Run Android E2E tests (Expo + Maestro)
+        uses: reactivecircus/android-emulator-runner@v2
         with:
-          path: |
-            ~/.android/
+          api-level: 35
+          arch: x86_64
+          profile: pixel_10
+          # keep it simple: headless, no snapshots, animations off
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          working-directory: example
+          script: |
+            npx expo prebuild --platform android --no-install --non-interactive
+            cd android
+            ./gradlew assembleDebug
+            cd ..
+            adb wait-for-device
+            adb install -r android/app/build/outputs/apk/debug/app-debug.apk
+            maestro --version
+            maestro test --format junit --output ../maestro-report.xml maestro/smoke.yaml
+
+      - name: Upload Maestro report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: maestro-results
+          path: maestro-report.xml
