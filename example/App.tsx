@@ -1,37 +1,51 @@
-import { useEvent } from 'expo';
-import Media3Transformer, { Media3TransformerView } from '@hortemo/expo-media3-transformer';
-import { Button, SafeAreaView, ScrollView, Text, View } from 'react-native';
+import Media3Transformer, {
+  Layout,
+  VideoEffectType,
+  createPresentationForAspectRatio,
+  type TransformerOptions,
+} from '@hortemo/expo-media3-transformer';
+import { Platform, SafeAreaView, ScrollView, Text, View } from 'react-native';
+
+const sampleOptions: TransformerOptions = {
+  mediaItem: {
+    uri: 'file:///absolute/path/to/input.mp4',
+    videoEffects: [createPresentationForAspectRatio(1, Layout.SCALE_TO_FIT)],
+  },
+  outputPath: 'file:///absolute/path/to/output.mp4',
+};
 
 export default function App() {
-  const onChangePayload = useEvent(Media3Transformer, 'onChange');
+  const supported = Platform.OS === 'android';
 
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView style={styles.container}>
-        <Text style={styles.header}>Module API Example</Text>
-        <Group name="Constants">
-          <Text>{Media3Transformer.PI}</Text>
+        <Text style={styles.header}>Media3 Transformer</Text>
+        <Group name="Platform support">
+          <Text>
+            {supported
+              ? 'Media3Transformer runs natively on Android using ExoPlayer Media3.'
+              : 'Media3Transformer is available on Android. Update your app logic to guard calls on other platforms.'}
+          </Text>
         </Group>
-        <Group name="Functions">
-          <Text>{Media3Transformer.hello()}</Text>
+        <Group name="Exports">
+          <Text>Layouts: {JSON.stringify(Layout)}</Text>
+          <Text>Video effects: {JSON.stringify(VideoEffectType)}</Text>
         </Group>
-        <Group name="Async functions">
-          <Button
-            title="Set value"
-            onPress={async () => {
-              await Media3Transformer.setValueAsync('Hello from JS!');
-            }}
-          />
-        </Group>
-        <Group name="Events">
-          <Text>{onChangePayload?.value}</Text>
-        </Group>
-        <Group name="Views">
-          <Media3TransformerView
-            url="https://www.example.com"
-            onLoad={({ nativeEvent: { url } }) => console.log(`Loaded: ${url}`)}
-            style={styles.view}
-          />
+        <Group name="Usage">
+          <Text selectable>
+{`await Media3Transformer.transform({
+  ...sampleOptions,
+  mediaItem: {
+    ...sampleOptions.mediaItem,
+    // Provide valid URIs and optional effects/processors.
+  },
+});`}
+          </Text>
+          <Text style={styles.hint}>
+            Provide valid file:// URIs before calling transform. The sample options above show the
+            structure expected by the native module.
+          </Text>
         </Group>
       </ScrollView>
     </SafeAreaView>
@@ -66,8 +80,8 @@ const styles = {
     flex: 1,
     backgroundColor: '#eee',
   },
-  view: {
-    flex: 1,
-    height: 200,
+  hint: {
+    marginTop: 16,
+    color: '#666',
   },
 };
