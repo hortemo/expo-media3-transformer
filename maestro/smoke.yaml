@@ -1,0 +1,8 @@
+appId: expo.modules.media3transformer.example
+---
+- launchApp:
+    clearState: true
+- assertVisible:
+    text: "Media3 Transformer"
+- assertVisible:
+    text: "Media3Transformer runs natively on Android using ExoPlayer Media3."

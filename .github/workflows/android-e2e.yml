@@ -1,0 +1,60 @@
+name: Android E2E
+
+on:
+  pull_request:
+
+jobs:
+  android-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    env:
+      CI: true
+      EXPO_NO_TELEMETRY: 1
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install example dependencies
+        run: npm ci
+        working-directory: example
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install Maestro CLI
+        uses: mobile-dev-inc/maestro@v1
+
+      - name: Run Android E2E tests
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_10
+          script: |
+            cd example
+            npx expo prebuild --platform android --no-install --non-interactive
+            cd android
+            ./gradlew assembleRelease
+            ./gradlew installRelease
+            cd ../..
+            maestro test maestro/smoke.yaml
