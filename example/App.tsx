@@ -196,7 +196,7 @@ export default function App() {
             onChangeText={setTransformOptionsText}
             autoCapitalize="none"
             autoCorrect={false}
-            
+            multiline
             textAlignVertical="top"
             style={[styles.textInput, styles.textArea]}
             placeholder="{}"
@@ -300,7 +300,9 @@ const styles = {
     fontSize: 14,
     backgroundColor: "#fff",
   },
-  textArea: {},
+  textArea: {
+    minHeight: 160,
+  },
   resultTextArea: {
     backgroundColor: "#f7f7f7",
   },
