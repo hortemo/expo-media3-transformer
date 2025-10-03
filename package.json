@@ -12,8 +12,7 @@
     "prepare": "expo-module prepare",
     "prepublishOnly": "expo-module prepublishOnly",
     "expo-module": "expo-module",
-    "open:ios": "xed example/ios",
-    "open:android": "open -a \"Android Studio\" example/android"
+    "e2e:android": "./scripts/e2e-android.sh"
   },
   "keywords": [
     "react-native",

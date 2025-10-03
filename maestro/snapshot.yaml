@@ -1,0 +1,21 @@
+appId: expo.modules.media3transformer.example
+---
+- launchApp:
+    clearState: true
+- assertVisible:
+    text: "Media3 Transformer"
+- tapOn:
+    id: "testButton-basic"
+- assertVisible:
+    id: "testStatus-basic"
+    text: "done"
+- tapOn:
+    id: "testButton-clip"
+- assertVisible:
+    id: "testStatus-clip"
+    text: "done"
+- tapOn:
+    id: "testButton-effects"
+- assertVisible:
+    id: "testStatus-effects"
+    text: "done"

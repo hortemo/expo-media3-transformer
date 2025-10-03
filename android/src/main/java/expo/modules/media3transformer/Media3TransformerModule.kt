@@ -1,5 +1,7 @@
 package expo.modules.media3transformer
 
+import android.net.Uri
+import android.util.Log
 import android.content.Context
 import androidx.media3.common.Effect
 import androidx.media3.common.MediaItem
@@ -50,7 +52,7 @@ class TransformOptions : Record {
 }
 
 class MediaItemOptions : Record {
-  @Field var uri: String? = null
+  @Field var uri: Uri? = null
   @Field var clippingConfiguration: ClippingConfigurationOptions? = null
   @Field var videoEffects: List<VideoEffectOptions>? = null
   @Field var audioProcessors: List<AudioProcessorOptions>? = null
@@ -239,6 +241,11 @@ internal suspend fun executeTransform(
       exportResult: ExportResult,
       exception: ExportException,
     ) {
+      Log.e(
+        "Media3Transformer",
+        "Transformation failed with ExportException. exportResult=${exportResult.toMap()}",
+        exception,
+      )
       continuation.resumeWithException(exception)
     }
   })

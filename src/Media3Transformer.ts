@@ -1,4 +1,4 @@
-import { requireNativeModule } from 'expo-modules-core';
+import { requireNativeModule } from "expo-modules-core";
 
 import type {
   AudioProcessor,
@@ -16,18 +16,23 @@ import type {
   TransformerResult,
   VideoEffect,
   RequestedVideoEncoderSettings,
-} from './Media3Transformer.types';
+} from "./Media3Transformer.types";
 import {
   AudioProcessorType,
   Layout,
   VideoEffectType,
-} from './Media3Transformer.types';
+} from "./Media3Transformer.types";
 
-const nativeModule = requireNativeModule<Media3TransformerModule>('Media3Transformer');
+const nativeModule =
+  requireNativeModule<Media3TransformerModule>("Media3Transformer");
+
+const stripOutputPathUriPrefix = (path: string): string => {
+  return path.replace(/^file:\/\//, "");
+};
 
 export const createPresentationForAspectRatio = (
   aspectRatio: number,
-  layout: Layout,
+  layout: Layout
 ): PresentationForAspectRatio => ({
   type: VideoEffectType.PresentationForAspectRatio,
   aspectRatio,
@@ -37,7 +42,7 @@ export const createPresentationForAspectRatio = (
 export const createPresentationForWidthAndHeight = (
   width: number,
   height: number,
-  layout: Layout,
+  layout: Layout
 ): PresentationForWidthAndHeight => ({
   type: VideoEffectType.PresentationForWidthAndHeight,
   width,
@@ -46,14 +51,14 @@ export const createPresentationForWidthAndHeight = (
 });
 
 export const createPresentationForHeight = (
-  height: number,
+  height: number
 ): PresentationForHeight => ({
   type: VideoEffectType.PresentationForHeight,
   height,
 });
 
 export const createFrameDropEffect = (
-  targetFrameRate: number,
+  targetFrameRate: number
 ): FrameDropEffect => ({
   type: VideoEffectType.FrameDropEffect,
   targetFrameRate,
@@ -62,7 +67,7 @@ export const createFrameDropEffect = (
 export const createScaleAndRotateTransformation = (
   scaleX: number,
   scaleY: number = scaleX,
-  rotationDegrees: number = 0,
+  rotationDegrees: number = 0
 ): ScaleAndRotateTransformation => ({
   type: VideoEffectType.ScaleAndRotateTransformation,
   scaleX,
@@ -72,22 +77,29 @@ export const createScaleAndRotateTransformation = (
 
 export const createChannelMixingMatrix = (
   inputChannelCount: number,
-  outputChannelCount: number,
+  outputChannelCount: number
 ): ChannelMixingMatrix => ({
   inputChannelCount,
   outputChannelCount,
 });
 
 export const createAudioChannelMixingAudioProcessor = (
-  channelMixingMatrices: ChannelMixingMatrix[],
+  channelMixingMatrices: ChannelMixingMatrix[]
 ): ChannelMixingAudioProcessor => ({
   type: AudioProcessorType.ChannelMixingAudioProcessor,
   channelMixingMatrices,
 });
 
 export const transform = (
-  options: TransformerOptions,
-): Promise<TransformerResult> => nativeModule.transform(options);
+  options: TransformerOptions
+): Promise<TransformerResult> => {
+  const sanitizedOptions: TransformerOptions = {
+    ...options,
+    outputPath: stripOutputPathUriPrefix(options.outputPath),
+  };
+
+  return nativeModule.transform(sanitizedOptions);
+};
 
 export type {
   AudioProcessor,
@@ -109,4 +121,9 @@ export type {
 
 export { AudioProcessorType, Layout, VideoEffectType };
 
-export default nativeModule;
+const Media3TransformerModuleWithSanitizedTransform: Media3TransformerModule = {
+  ...nativeModule,
+  transform,
+};
+
+export default Media3TransformerModuleWithSanitizedTransform;
