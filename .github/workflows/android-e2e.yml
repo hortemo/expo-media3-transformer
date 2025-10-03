@@ -103,7 +103,7 @@ jobs:
             adb wait-for-device
             adb install -r ./apk/app-release.apk
             maestro --version
-            maestro test --format junit --output ./maestro-report.xml maestro/smoke.yaml
+            maestro test --format junit --output ./maestro-report.xml maestro/snapshot.yaml
 
       - name: Upload Maestro report
         if: always()

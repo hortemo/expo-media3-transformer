@@ -26,4 +26,4 @@ cd android
 ./gradlew assembleRelease installRelease
 
 # Run Maestro tests
-maestro test "$ROOT_DIR/maestro/smoke.yaml" "$@"
+maestro test "$ROOT_DIR/maestro/snapshot.yaml" "$@"
