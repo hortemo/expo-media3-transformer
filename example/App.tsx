@@ -1,10 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import Media3Transformer, {
-  Layout,
-  VideoEffectType,
-  createPresentationForAspectRatio,
   type TransformerOptions,
-  type TransformerResult,
 } from "@hortemo/expo-media3-transformer";
 import * as FileSystem from "expo-file-system";
 import {
@@ -13,6 +9,7 @@ import {
   SafeAreaView,
   ScrollView,
   Text,
+  TextInput,
   View,
 } from "react-native";
 
@@ -24,19 +21,54 @@ type TransformationStatus =
   | "done"
   | "error";
 
+type UserProvidedTransformOptions = Partial<TransformerOptions>;
+
 const SAMPLE_VIDEO_URL =
   "https://filesamples.com/samples/video/mp4/sample_640x360.mp4";
 
+const MONOSPACE_FONT = Platform.select({
+  ios: "Menlo",
+  android: "monospace",
+  default: "monospace",
+});
+
+const normalizeTransformOptions = (
+  input: UserProvidedTransformOptions,
+  inputUri: string,
+  outputUri: string
+): TransformerOptions => {
+  const mediaItemFromInput: Partial<TransformerOptions["mediaItem"]> =
+    input.mediaItem ? { ...input.mediaItem } : {};
+
+  const resolvedMediaItem: TransformerOptions["mediaItem"] = {
+    ...mediaItemFromInput,
+    uri:
+      typeof mediaItemFromInput.uri === "string" &&
+      mediaItemFromInput.uri.trim().length > 0
+        ? mediaItemFromInput.uri
+        : inputUri,
+  } as TransformerOptions["mediaItem"];
+
+  const resolvedOutputPath =
+    typeof input.outputPath === "string" && input.outputPath.trim().length > 0
+      ? input.outputPath
+      : outputUri;
+
+  return {
+    ...input,
+    mediaItem: resolvedMediaItem,
+    outputPath: resolvedOutputPath,
+  } as TransformerOptions;
+};
+
 export default function App() {
   const supported = Platform.OS === "android";
+  const [videoUrl, setVideoUrl] = useState<string>("");
+  const [transformOptionsText, setTransformOptionsText] = useState<string>("");
   const [status, setStatus] = useState<TransformationStatus>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [transformResult, setTransformResult] =
-    useState<TransformerResult | null>(null);
-  const [outputFileExists, setOutputFileExists] = useState<boolean | null>(
-    null
-  );
-  const [outputFileSize, setOutputFileSize] = useState<number | null>(null);
+  const [transformerResultJson, setTransformerResultJson] =
+    useState<string>("");
 
   const cacheDirectoryUri = useMemo(() => {
     try {
@@ -46,24 +78,7 @@ export default function App() {
     }
   }, []);
 
-  const statusMessage = useMemo(() => {
-    switch (status) {
-      case "downloading":
-        return "Downloading sample video";
-      case "transforming":
-        return "Transforming sample video";
-      case "verifying":
-        return "Verifying output file";
-      case "done":
-        return "Transformation succeeded";
-      case "error":
-        return "Transformation failed";
-      default:
-        return "Idle";
-    }
-  }, [status]);
-
-  const transformSampleVideo = useCallback(async () => {
+  const runTransform = useCallback(async () => {
     if (!supported) {
       return;
     }
@@ -74,21 +89,35 @@ export default function App() {
       return;
     }
 
+    setStatus("downloading");
+    setErrorMessage(null);
+    setTransformerResultJson("");
+
+    let parsedOptions: UserProvidedTransformOptions;
+
+    try {
+      parsedOptions = JSON.parse(
+        transformOptionsText
+      ) as UserProvidedTransformOptions;
+    } catch (parseError) {
+      setStatus("error");
+      setErrorMessage(
+        parseError instanceof Error
+          ? `Invalid transform options JSON: ${parseError.message}`
+          : "Invalid transform options JSON."
+      );
+      return;
+    }
+
     const inputFile = new FileSystem.File(
       cacheDirectoryUri,
-      "sample-input.mp4"
+      "configurable-input.mp4"
     );
     const outputFile = new FileSystem.File(
       cacheDirectoryUri,
-      "sample-output.mp4"
+      "configurable-output.mp4"
     );
     const outputDirectory = outputFile.parentDirectory;
-
-    setStatus("downloading");
-    setErrorMessage(null);
-    setTransformResult(null);
-    setOutputFileExists(null);
-    setOutputFileSize(null);
 
     try {
       if (!outputDirectory.exists) {
@@ -103,59 +132,80 @@ export default function App() {
       }
 
       const downloadedFile = await FileSystem.File.downloadFileAsync(
-        SAMPLE_VIDEO_URL,
+        videoUrl,
         inputFile,
         { idempotent: true }
       );
 
       setStatus("transforming");
 
-      const result = await Media3Transformer.transform({
-        mediaItem: {
-          uri: downloadedFile.uri,
-        },
-        outputPath: outputFile.uri,
-      });
+      const options = normalizeTransformOptions(
+        parsedOptions,
+        downloadedFile.uri,
+        outputFile.uri
+      );
 
-      setTransformResult(result);
+      const transformResult = await Media3Transformer.transform(options);
 
       setStatus("verifying");
 
       const info = outputFile.info();
+      const exists = info.exists;
 
-      setOutputFileExists(info.exists);
-
-      if (!info.exists) {
-        setOutputFileSize(null);
+      if (!exists) {
         throw new Error("Output file was not created.");
       }
 
-      setOutputFileSize(typeof info.size === "number" ? info.size : null);
-
+      setTransformerResultJson(JSON.stringify(transformResult));
       setStatus("done");
     } catch (error) {
+      setTransformerResultJson("");
       setStatus("error");
-      if (error instanceof Error) {
-        setErrorMessage(error.message);
-      } else {
-        setErrorMessage("Unknown error while transforming sample video.");
-      }
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "Unknown error while transforming video."
+      );
     }
-  }, [cacheDirectoryUri, supported]);
+  }, [cacheDirectoryUri, supported, transformOptionsText, videoUrl]);
 
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView style={styles.container}>
         <Text style={styles.header}>Media3 Transformer</Text>
 
-        <Group name="End-to-end test">
-          <Text>
-            The button below downloads a sample video, transforms it, and checks
-            that the output file exists.
-          </Text>
+        <Group name="Transform configuration">
+          <Text>Video URL</Text>
+          <TextInput
+            testID="videoUrlInput"
+            accessibilityLabel="Video URL input"
+            value={videoUrl}
+            onChangeText={setVideoUrl}
+            autoCapitalize="none"
+            autoCorrect={false}
+            keyboardType="url"
+            style={styles.textInput}
+            placeholder="https://example.com/video.mp4"
+          />
+
+          <Text style={styles.sectionLabel}>TransformerOptions JSON</Text>
+          <TextInput
+            testID="transformOptions"
+            accessibilityLabel="Transformer options input"
+            value={transformOptionsText}
+            onChangeText={setTransformOptionsText}
+            autoCapitalize="none"
+            autoCorrect={false}
+            multiline
+            textAlignVertical="top"
+            style={[styles.textInput, styles.textArea]}
+            placeholder="{}"
+          />
+
           <Button
-            title="Transform sample video"
-            onPress={transformSampleVideo}
+            testID="transformButton"
+            title="Download and transform"
+            onPress={runTransform}
             disabled={
               !supported ||
               status === "downloading" ||
@@ -163,30 +213,35 @@ export default function App() {
               status === "verifying"
             }
           />
-          <Text style={styles.statusText}>
-            Transformation status: {statusMessage}
+
+          <Text testID="transformStatus" style={styles.statusText}>
+            {status}
           </Text>
-          {outputFileExists !== null && (
-            <Text style={styles.statusText}>
-              Output file exists: {outputFileExists ? "yes" : "no"}
-            </Text>
-          )}
-          {outputFileSize !== null && (
-            <Text style={styles.statusText}>
-              Output file size (bytes): {outputFileSize}
-            </Text>
-          )}
-          {transformResult && (
-            <Text style={styles.statusText}>
-              Transformer result duration (ms): {transformResult.durationMs}
-            </Text>
-          )}
+
           {errorMessage && (
             <Text style={[styles.statusText, styles.errorText]}>
               Error message: {errorMessage}
             </Text>
           )}
+
+          <Text style={styles.sectionLabel}>TransformerResult JSON</Text>
+          <TextInput
+            testID="transformerResult"
+            accessibilityLabel="Transformer result output"
+            value={transformerResultJson}
+            editable={false}
+            multiline
+            textAlignVertical="top"
+            style={[styles.textInput, styles.textArea, styles.resultTextArea]}
+            placeholder="TransformerResult will appear here"
+          />
         </Group>
+
+        {!supported && (
+          <Text style={[styles.statusText, styles.hint]}>
+            Media3 Transformer is only supported on Android.
+          </Text>
+        )}
       </ScrollView>
     </SafeAreaView>
   );
@@ -220,14 +275,35 @@ const styles = {
     flex: 1,
     backgroundColor: "#eee",
   },
-  hint: {
-    marginTop: 16,
-    color: "#666",
-  },
   statusText: {
     marginTop: 12,
   },
   errorText: {
     color: "#d22",
   },
-};
+  hint: {
+    marginTop: 16,
+    color: "#666",
+  },
+  sectionLabel: {
+    marginTop: 16,
+    fontWeight: "600",
+  },
+  textInput: {
+    borderWidth: 1,
+    borderColor: "#ccc",
+    borderRadius: 6,
+    padding: 12,
+    marginTop: 12,
+    minHeight: 44,
+    fontFamily: MONOSPACE_FONT,
+    fontSize: 14,
+    backgroundColor: "#fff",
+  },
+  textArea: {
+    minHeight: 160,
+  },
+  resultTextArea: {
+    backgroundColor: "#f7f7f7",
+  },
+} as const;
