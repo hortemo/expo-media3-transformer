@@ -4,5 +4,19 @@ appId: expo.modules.media3transformer.example
     clearState: true
 - assertVisible:
     text: "Media3 Transformer"
+- tapOn:
+    text: "Transform sample video"
+- extendedWaitUntil:
+    visible:
+      text: "Transformation status: Transformation succeeded"
+    timeout: 120000
 - assertVisible:
-    text: "Media3Transformer runs natively on Android using ExoPlayer Media3."
+    text: "Output file exists: yes"
+- extendedWaitUntil:
+    visible:
+      text: "Output file size (bytes): 579718"
+    timeout: 120000
+- extendedWaitUntil:
+    visible:
+      text: "Transformer result duration (ms): 13313"
+    timeout: 120000

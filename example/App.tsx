@@ -1,51 +1,191 @@
+import { useCallback, useMemo, useState } from "react";
 import Media3Transformer, {
   Layout,
   VideoEffectType,
   createPresentationForAspectRatio,
   type TransformerOptions,
-} from '@hortemo/expo-media3-transformer';
-import { Platform, SafeAreaView, ScrollView, Text, View } from 'react-native';
+  type TransformerResult,
+} from "@hortemo/expo-media3-transformer";
+import * as FileSystem from "expo-file-system";
+import {
+  Button,
+  Platform,
+  SafeAreaView,
+  ScrollView,
+  Text,
+  View,
+} from "react-native";
 
-const sampleOptions: TransformerOptions = {
-  mediaItem: {
-    uri: 'file:///absolute/path/to/input.mp4',
-    videoEffects: [createPresentationForAspectRatio(1, Layout.SCALE_TO_FIT)],
-  },
-  outputPath: 'file:///absolute/path/to/output.mp4',
-};
+type TransformationStatus =
+  | "idle"
+  | "downloading"
+  | "transforming"
+  | "verifying"
+  | "done"
+  | "error";
+
+const SAMPLE_VIDEO_URL =
+  "https://filesamples.com/samples/video/mp4/sample_640x360.mp4";
 
 export default function App() {
-  const supported = Platform.OS === 'android';
+  const supported = Platform.OS === "android";
+  const [status, setStatus] = useState<TransformationStatus>("idle");
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [transformResult, setTransformResult] =
+    useState<TransformerResult | null>(null);
+  const [outputFileExists, setOutputFileExists] = useState<boolean | null>(
+    null
+  );
+  const [outputFileSize, setOutputFileSize] = useState<number | null>(null);
+
+  const cacheDirectoryUri = useMemo(() => {
+    try {
+      return FileSystem.Paths.cache.uri;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const statusMessage = useMemo(() => {
+    switch (status) {
+      case "downloading":
+        return "Downloading sample video";
+      case "transforming":
+        return "Transforming sample video";
+      case "verifying":
+        return "Verifying output file";
+      case "done":
+        return "Transformation succeeded";
+      case "error":
+        return "Transformation failed";
+      default:
+        return "Idle";
+    }
+  }, [status]);
+
+  const transformSampleVideo = useCallback(async () => {
+    if (!supported) {
+      return;
+    }
+
+    if (!cacheDirectoryUri) {
+      setStatus("error");
+      setErrorMessage("Cache directory unavailable.");
+      return;
+    }
+
+    const inputFile = new FileSystem.File(
+      cacheDirectoryUri,
+      "sample-input.mp4"
+    );
+    const outputFile = new FileSystem.File(
+      cacheDirectoryUri,
+      "sample-output.mp4"
+    );
+    const outputDirectory = outputFile.parentDirectory;
+
+    setStatus("downloading");
+    setErrorMessage(null);
+    setTransformResult(null);
+    setOutputFileExists(null);
+    setOutputFileSize(null);
+
+    try {
+      if (!outputDirectory.exists) {
+        outputDirectory.create({ intermediates: true, idempotent: true });
+      }
+
+      if (inputFile.exists) {
+        inputFile.delete();
+      }
+      if (outputFile.exists) {
+        outputFile.delete();
+      }
+
+      const downloadedFile = await FileSystem.File.downloadFileAsync(
+        SAMPLE_VIDEO_URL,
+        inputFile,
+        { idempotent: true }
+      );
+
+      setStatus("transforming");
+
+      const result = await Media3Transformer.transform({
+        mediaItem: {
+          uri: downloadedFile.uri,
+        },
+        outputPath: outputFile.uri,
+      });
+
+      setTransformResult(result);
+
+      setStatus("verifying");
+
+      const info = outputFile.info();
+
+      setOutputFileExists(info.exists);
+
+      if (!info.exists) {
+        setOutputFileSize(null);
+        throw new Error("Output file was not created.");
+      }
+
+      setOutputFileSize(typeof info.size === "number" ? info.size : null);
+
+      setStatus("done");
+    } catch (error) {
+      setStatus("error");
+      if (error instanceof Error) {
+        setErrorMessage(error.message);
+      } else {
+        setErrorMessage("Unknown error while transforming sample video.");
+      }
+    }
+  }, [cacheDirectoryUri, supported]);
 
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView style={styles.container}>
         <Text style={styles.header}>Media3 Transformer</Text>
-        <Group name="Platform support">
+
+        <Group name="End-to-end test">
           <Text>
-            {supported
-              ? 'Media3Transformer runs natively on Android using ExoPlayer Media3.'
-              : 'Media3Transformer is available on Android. Update your app logic to guard calls on other platforms.'}
+            The button below downloads a sample video, transforms it, and checks
+            that the output file exists.
           </Text>
-        </Group>
-        <Group name="Exports">
-          <Text>Layouts: {JSON.stringify(Layout)}</Text>
-          <Text>Video effects: {JSON.stringify(VideoEffectType)}</Text>
-        </Group>
-        <Group name="Usage">
-          <Text selectable>
-{`await Media3Transformer.transform({
-  ...sampleOptions,
-  mediaItem: {
-    ...sampleOptions.mediaItem,
-    // Provide valid URIs and optional effects/processors.
-  },
-});`}
+          <Button
+            title="Transform sample video"
+            onPress={transformSampleVideo}
+            disabled={
+              !supported ||
+              status === "downloading" ||
+              status === "transforming" ||
+              status === "verifying"
+            }
+          />
+          <Text style={styles.statusText}>
+            Transformation status: {statusMessage}
           </Text>
-          <Text style={styles.hint}>
-            Provide valid file:// URIs before calling transform. The sample options above show the
-            structure expected by the native module.
-          </Text>
+          {outputFileExists !== null && (
+            <Text style={styles.statusText}>
+              Output file exists: {outputFileExists ? "yes" : "no"}
+            </Text>
+          )}
+          {outputFileSize !== null && (
+            <Text style={styles.statusText}>
+              Output file size (bytes): {outputFileSize}
+            </Text>
+          )}
+          {transformResult && (
+            <Text style={styles.statusText}>
+              Transformer result duration (ms): {transformResult.durationMs}
+            </Text>
+          )}
+          {errorMessage && (
+            <Text style={[styles.statusText, styles.errorText]}>
+              Error message: {errorMessage}
+            </Text>
+          )}
         </Group>
       </ScrollView>
     </SafeAreaView>
@@ -72,16 +212,22 @@ const styles = {
   },
   group: {
     margin: 20,
-    backgroundColor: '#fff',
+    backgroundColor: "#fff",
     borderRadius: 10,
     padding: 20,
   },
   container: {
     flex: 1,
-    backgroundColor: '#eee',
+    backgroundColor: "#eee",
   },
   hint: {
     marginTop: 16,
-    color: '#666',
+    color: "#666",
+  },
+  statusText: {
+    marginTop: 12,
+  },
+  errorText: {
+    color: "#d22",
   },
 };
