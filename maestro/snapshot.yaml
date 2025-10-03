@@ -10,6 +10,9 @@ appId: expo.modules.media3transformer.example
 - tapOn:
     id: "transformOptions"
 - inputText: '{"mediaItem":{"clippingConfiguration":{"startPositionMs":500,"endPositionMs":6000},"videoEffects":[{"type":"ScaleAndRotateTransformation","scaleX":0.5,"scaleY":0.5,"rotationDegrees":90}]},"encoderFactory":{"requestedVideoEncoderSettings":{"bitrate":450000}}}'
+- scrollUntilVisible:
+    element:
+      id: "transformButton"
 - tapOn:
     id: "transformButton"
 - assertVisible:

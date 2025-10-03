@@ -196,7 +196,7 @@ export default function App() {
             onChangeText={setTransformOptionsText}
             autoCapitalize="none"
             autoCorrect={false}
-            multiline
+            
             textAlignVertical="top"
             style={[styles.textInput, styles.textArea]}
             placeholder="{}"
@@ -226,7 +226,7 @@ export default function App() {
 
           <Text style={styles.sectionLabel}>TransformerResult JSON</Text>
           <TextInput
-            testID="transformerResult"
+            testID="transformerResultOutput"
             accessibilityLabel="Transformer result output"
             value={transformerResultJson}
             editable={false}
@@ -300,9 +300,7 @@ const styles = {
     fontSize: 14,
     backgroundColor: "#fff",
   },
-  textArea: {
-    minHeight: 160,
-  },
+  textArea: {},
   resultTextArea: {
     backgroundColor: "#f7f7f7",
   },
