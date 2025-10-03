@@ -5,19 +5,17 @@ appId: expo.modules.media3transformer.example
 - assertVisible:
     text: "Media3 Transformer"
 - tapOn:
-    id: "videoUrlInput"
-- inputText: "https://filesamples.com/samples/video/mp4/sample_640x360.mp4"
-- tapOn:
-    id: "transformOptions"
-- inputText: '{"mediaItem":{"clippingConfiguration":{"startPositionMs":500,"endPositionMs":6000},"videoEffects":[{"type":"ScaleAndRotateTransformation","scaleX":0.5,"scaleY":0.5,"rotationDegrees":90}]},"encoderFactory":{"requestedVideoEncoderSettings":{"bitrate":450000}}}'
-- scrollUntilVisible:
-    element:
-      id: "transformButton"
-- tapOn:
-    id: "transformButton"
+    id: "testButton-basic"
 - assertVisible:
-    id: "transformStatus"
+    id: "testStatus-basic"
     text: "done"
+- tapOn:
+    id: "testButton-clip"
 - assertVisible:
-    id: "transformerResult"
-    text: '{"averageAudioBitrate":-2147483647,"averageVideoBitrate":436921,"durationMs":5438,"fileSizeBytes":300271,"videoFrameCount":164,"channelCount":-1,"sampleRate":-2147483647,"height":180,"width":320,"audioEncoderName":null,"videoEncoderName":"c2.android.avc.encoder"}'
+    id: "testStatus-clip"
+    text: "done"
+- tapOn:
+    id: "testButton-effects"
+- assertVisible:
+    id: "testStatus-effects"
+    text: "done"

@@ -1,6 +1,7 @@
-import { useCallback, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useMemo, useState } from "react";
 import Media3Transformer, {
   type TransformerOptions,
+  type TransformerResult,
 } from "@hortemo/expo-media3-transformer";
 import * as FileSystem from "expo-file-system";
 import {
@@ -9,7 +10,6 @@ import {
   SafeAreaView,
   ScrollView,
   Text,
-  TextInput,
   View,
 } from "react-native";
 
@@ -23,14 +23,106 @@ type TransformationStatus =
 
 type UserProvidedTransformOptions = Partial<TransformerOptions>;
 
+type NumericExpectation = {
+  equals?: number;
+  tolerance?: number;
+  min?: number;
+  max?: number;
+};
+
+type TestExpectations = Partial<
+  Record<keyof TransformerResult, NumericExpectation>
+>;
+
+type TestCaseDefinition = {
+  id: string;
+  label: string;
+  videoUrl: string;
+  options: UserProvidedTransformOptions;
+  expectedResult: TestExpectations;
+};
+
+type TestStatus = {
+  status: TransformationStatus;
+  errorMessage: string | null;
+};
+
+type TestStatusMap = Record<string, TestStatus>;
+
 const SAMPLE_VIDEO_URL =
   "https://filesamples.com/samples/video/mp4/sample_640x360.mp4";
 
-const MONOSPACE_FONT = Platform.select({
-  ios: "Menlo",
-  android: "monospace",
-  default: "monospace",
-});
+const TEST_CASES: TestCaseDefinition[] = [
+  {
+    id: "basic",
+    label: "Basic transform",
+    videoUrl: SAMPLE_VIDEO_URL,
+    options: {},
+    expectedResult: {
+      width: { equals: 640 },
+      height: { equals: 360 },
+      durationMs: { equals: 13_313 },
+      fileSizeBytes: { equals: 572_481 },
+    },
+  },
+  {
+    id: "clip",
+    label: "Clip with bitrate",
+    videoUrl: SAMPLE_VIDEO_URL,
+    options: {
+      mediaItem: {
+        clippingConfiguration: {
+          startPositionMs: 1000,
+          endPositionMs: 6000,
+        },
+      },
+      encoderFactory: {
+        requestedVideoEncoderSettings: {
+          bitrate: 1_000_000,
+        },
+      },
+    },
+    expectedResult: {
+      width: { equals: 640 },
+      height: { equals: 360 },
+      durationMs: { min: 4900, max: 5100 },
+      averageVideoBitrate: { min: 950_000, max: 1_050_000 },
+    },
+  },
+  {
+    id: "effects",
+    label: "Scale and rotate",
+    videoUrl: SAMPLE_VIDEO_URL,
+    options: {
+      mediaItem: {
+        videoEffects: [
+          {
+            type: "ScaleAndRotateTransformation",
+            scaleX: 0.5,
+            scaleY: 0.5,
+            rotationDegrees: 0,
+          },
+        ],
+      },
+    },
+    expectedResult: {
+      width: { equals: 320 },
+      height: { equals: 180 },
+      durationMs: { equals: 13_313 },
+    },
+  },
+];
+
+const createInitialStatuses = (): TestStatusMap =>
+  TEST_CASES.reduce<TestStatusMap>((acc, testCase) => {
+    acc[testCase.id] = { status: "idle", errorMessage: null };
+    return acc;
+  }, {} as TestStatusMap);
+
+const isRunningStatus = (status: TransformationStatus) =>
+  status === "downloading" ||
+  status === "transforming" ||
+  status === "verifying";
 
 const normalizeTransformOptions = (
   input: UserProvidedTransformOptions,
@@ -61,15 +153,75 @@ const normalizeTransformOptions = (
   } as TransformerOptions;
 };
 
+const validateNumberExpectation = (
+  key: keyof TransformerResult,
+  expectation: NumericExpectation,
+  actualValue: number
+): string | null => {
+  if (
+    expectation.equals !== undefined &&
+    Math.abs(actualValue - expectation.equals) > (expectation.tolerance ?? 0)
+  ) {
+    const toleranceText = expectation.tolerance
+      ? `±${expectation.tolerance}`
+      : "";
+    return `${String(key)} expected ${
+      expectation.equals
+    }${toleranceText} but got ${actualValue}`;
+  }
+
+  if (expectation.min !== undefined && actualValue < expectation.min) {
+    return `${String(key)} expected ≥ ${
+      expectation.min
+    } but got ${actualValue}`;
+  }
+
+  if (expectation.max !== undefined && actualValue > expectation.max) {
+    return `${String(key)} expected ≤ ${
+      expectation.max
+    } but got ${actualValue}`;
+  }
+
+  return null;
+};
+
+const assertResultMatches = (
+  result: TransformerResult,
+  expectation: TestExpectations
+): void => {
+  const failures: string[] = [];
+
+  (
+    Object.entries(expectation) as Array<
+      [keyof TransformerResult, NumericExpectation]
+    >
+  ).forEach(([key, value]) => {
+    if (!value) {
+      return;
+    }
+
+    const actualValue = result[key];
+
+    if (typeof actualValue !== "number") {
+      failures.push(
+        `${String(key)} expected numeric value but got ${String(actualValue)}`
+      );
+      return;
+    }
+
+    const failure = validateNumberExpectation(key, value, actualValue);
+    if (failure) {
+      failures.push(failure);
+    }
+  });
+
+  if (failures.length > 0) {
+    throw new Error(`Expectation failed: ${failures.join("; ")}`);
+  }
+};
+
 export default function App() {
   const supported = Platform.OS === "android";
-  const [videoUrl, setVideoUrl] = useState<string>("");
-  const [transformOptionsText, setTransformOptionsText] = useState<string>("");
-  const [status, setStatus] = useState<TransformationStatus>("idle");
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [transformerResultJson, setTransformerResultJson] =
-    useState<string>("");
-
   const cacheDirectoryUri = useMemo(() => {
     try {
       return FileSystem.Paths.cache.uri;
@@ -77,164 +229,146 @@ export default function App() {
       return null;
     }
   }, []);
+  const [testStatuses, setTestStatuses] = useState<TestStatusMap>(
+    createInitialStatuses
+  );
 
-  const runTransform = useCallback(async () => {
-    if (!supported) {
-      return;
-    }
+  const updateStatus = useCallback(
+    (
+      testCaseId: string,
+      status: TransformationStatus,
+      errorMessage: string | null = null
+    ) => {
+      setTestStatuses((previousStatuses) => ({
+        ...previousStatuses,
+        [testCaseId]: { status, errorMessage },
+      }));
+    },
+    []
+  );
 
-    if (!cacheDirectoryUri) {
-      setStatus("error");
-      setErrorMessage("Cache directory unavailable.");
-      return;
-    }
-
-    setStatus("downloading");
-    setErrorMessage(null);
-    setTransformerResultJson("");
-
-    let parsedOptions: UserProvidedTransformOptions;
-
-    try {
-      parsedOptions = JSON.parse(
-        transformOptionsText
-      ) as UserProvidedTransformOptions;
-    } catch (parseError) {
-      setStatus("error");
-      setErrorMessage(
-        parseError instanceof Error
-          ? `Invalid transform options JSON: ${parseError.message}`
-          : "Invalid transform options JSON."
-      );
-      return;
-    }
-
-    const inputFile = new FileSystem.File(
-      cacheDirectoryUri,
-      "configurable-input.mp4"
-    );
-    const outputFile = new FileSystem.File(
-      cacheDirectoryUri,
-      "configurable-output.mp4"
-    );
-    const outputDirectory = outputFile.parentDirectory;
-
-    try {
-      if (!outputDirectory.exists) {
-        outputDirectory.create({ intermediates: true, idempotent: true });
+  const runTestCase = useCallback(
+    async (testCase: TestCaseDefinition) => {
+      if (!supported) {
+        updateStatus(
+          testCase.id,
+          "error",
+          "Media3 Transformer is only supported on Android."
+        );
+        return;
       }
 
-      if (inputFile.exists) {
-        inputFile.delete();
-      }
-      if (outputFile.exists) {
-        outputFile.delete();
+      if (!cacheDirectoryUri) {
+        updateStatus(testCase.id, "error", "Cache directory unavailable.");
+        return;
       }
 
-      const downloadedFile = await FileSystem.File.downloadFileAsync(
-        videoUrl,
-        inputFile,
-        { idempotent: true }
+      updateStatus(testCase.id, "downloading");
+
+      const inputFile = new FileSystem.File(
+        cacheDirectoryUri,
+        `${testCase.id}-input.mp4`
       );
-
-      setStatus("transforming");
-
-      const options = normalizeTransformOptions(
-        parsedOptions,
-        downloadedFile.uri,
-        outputFile.uri
+      const outputFile = new FileSystem.File(
+        cacheDirectoryUri,
+        `${testCase.id}-output.mp4`
       );
+      const outputDirectory = outputFile.parentDirectory;
 
-      const transformResult = await Media3Transformer.transform(options);
+      try {
+        if (!outputDirectory.exists) {
+          outputDirectory.create({ intermediates: true, idempotent: true });
+        }
 
-      setStatus("verifying");
+        if (inputFile.exists) {
+          inputFile.delete();
+        }
+        if (outputFile.exists) {
+          outputFile.delete();
+        }
 
-      const info = outputFile.info();
-      const exists = info.exists;
+        const downloadedFile = await FileSystem.File.downloadFileAsync(
+          testCase.videoUrl,
+          inputFile,
+          { idempotent: true }
+        );
 
-      if (!exists) {
-        throw new Error("Output file was not created.");
+        updateStatus(testCase.id, "transforming");
+
+        const options = normalizeTransformOptions(
+          testCase.options,
+          downloadedFile.uri,
+          outputFile.uri
+        );
+
+        const transformResult = await Media3Transformer.transform(options);
+
+        updateStatus(testCase.id, "verifying");
+
+        const info = outputFile.info();
+        const exists = info.exists;
+
+        if (!exists) {
+          throw new Error("Output file was not created.");
+        }
+
+        assertResultMatches(transformResult, testCase.expectedResult);
+
+        updateStatus(testCase.id, "done");
+      } catch (error) {
+        updateStatus(
+          testCase.id,
+          "error",
+          error instanceof Error
+            ? error.message
+            : "Unknown error while transforming video."
+        );
       }
-
-      setTransformerResultJson(JSON.stringify(transformResult));
-      setStatus("done");
-    } catch (error) {
-      setTransformerResultJson("");
-      setStatus("error");
-      setErrorMessage(
-        error instanceof Error
-          ? error.message
-          : "Unknown error while transforming video."
-      );
-    }
-  }, [cacheDirectoryUri, supported, transformOptionsText, videoUrl]);
+    },
+    [cacheDirectoryUri, supported, updateStatus]
+  );
 
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView style={styles.container}>
         <Text style={styles.header}>Media3 Transformer</Text>
 
-        <Group name="Transform configuration">
-          <Text>Video URL</Text>
-          <TextInput
-            testID="videoUrlInput"
-            accessibilityLabel="Video URL input"
-            value={videoUrl}
-            onChangeText={setVideoUrl}
-            autoCapitalize="none"
-            autoCorrect={false}
-            keyboardType="url"
-            style={styles.textInput}
-            placeholder="https://example.com/video.mp4"
-          />
+        <Group name="Automated test cases">
+          {TEST_CASES.map((testCase) => {
+            const status =
+              testStatuses[testCase.id] ??
+              ({ status: "idle", errorMessage: null } as TestStatus);
+            const running = isRunningStatus(status.status);
 
-          <Text style={styles.sectionLabel}>TransformerOptions JSON</Text>
-          <TextInput
-            testID="transformOptions"
-            accessibilityLabel="Transformer options input"
-            value={transformOptionsText}
-            onChangeText={setTransformOptionsText}
-            autoCapitalize="none"
-            autoCorrect={false}
-            multiline
-            textAlignVertical="top"
-            style={[styles.textInput, styles.textArea]}
-            placeholder="{}"
-          />
+            return (
+              <View key={testCase.id} style={styles.testCase}>
+                <Text style={styles.testCaseTitle}>{testCase.label}</Text>
 
-          <Button
-            testID="transformButton"
-            title="Download and transform"
-            onPress={runTransform}
-            disabled={
-              !supported ||
-              status === "downloading" ||
-              status === "transforming" ||
-              status === "verifying"
-            }
-          />
+                <Button
+                  testID={`testButton-${testCase.id}`}
+                  title={running ? "Running..." : "Run test"}
+                  onPress={() => runTestCase(testCase)}
+                  disabled={!supported || running}
+                />
 
-          <Text testID="transformStatus" style={styles.statusText}>
-            {status}
-          </Text>
+                <Text
+                  testID={`testStatus-${testCase.id}`}
+                  style={styles.statusText}
+                >
+                  {status.status}
+                </Text>
 
-          {errorMessage && (
-            <Text style={[styles.statusText, styles.errorText]}>
-              Error message: {errorMessage}
-            </Text>
-          )}
-
-          <Text style={styles.sectionLabel}>TransformerResult JSON</Text>
-          <TextInput
-            testID="transformerResultOutput"
-            accessibilityLabel="Transformer result output"
-            value={transformerResultJson}
-            editable={false}
-            multiline
-            textAlignVertical="top"
-            style={[styles.textInput, styles.textArea, styles.resultTextArea]}
-            placeholder="TransformerResult will appear here"
-          />
+                {status.errorMessage && (
+                  <Text
+                    testID={`testError-${testCase.id}`}
+                    style={[styles.statusText, styles.errorText]}
+                  >
+                    Error message: {status.errorMessage}
+                  </Text>
+                )}
+              </View>
+            );
+          })}
         </Group>
 
         {!supported && (
@@ -247,7 +381,7 @@ export default function App() {
   );
 }
 
-function Group(props: { name: string; children: React.ReactNode }) {
+function Group(props: { name: string; children: ReactNode }) {
   return (
     <View style={styles.group}>
       <Text style={styles.groupHeader}>{props.name}</Text>
@@ -285,25 +419,11 @@ const styles = {
     marginTop: 16,
     color: "#666",
   },
-  sectionLabel: {
-    marginTop: 16,
+  testCase: {
+    marginBottom: 24,
+  },
+  testCaseTitle: {
     fontWeight: "600",
-  },
-  textInput: {
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 6,
-    padding: 12,
-    marginTop: 12,
-    minHeight: 44,
-    fontFamily: MONOSPACE_FONT,
-    fontSize: 14,
-    backgroundColor: "#fff",
-  },
-  textArea: {
-    minHeight: 160,
-  },
-  resultTextArea: {
-    backgroundColor: "#f7f7f7",
+    marginBottom: 12,
   },
 } as const;
