@@ -69,13 +69,11 @@ jobs:
     env:
       CI: true
       EXPO_NO_TELEMETRY: 1
-      APP_ID: com.yourcompany.yourapp # update if referenced in flows
 
     steps:
       - name: Checkout (for Maestro flows, etc.)
         uses: actions/checkout@v4
 
-      # Hardware acceleration for the emulator
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
