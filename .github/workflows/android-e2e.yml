@@ -51,15 +51,15 @@ jobs:
         working-directory: example
         run: npx expo prebuild --platform android --no-install
 
-      - name: Assemble Debug APK
+      - name: Assemble Release APK
         working-directory: example/android
-        run: ./gradlew --no-daemon assembleDebug
+        run: ./gradlew --no-daemon assembleRelease
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: app-debug-apk
-          path: example/android/app/build/outputs/apk/debug/app-debug.apk
+          name: app-release-apk
+          path: example/android/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
 
   android-e2e:
@@ -90,7 +90,7 @@ jobs:
       - name: Download APK artifact
         uses: actions/download-artifact@v4
         with:
-          name: app-debug-apk
+          name: app-release-apk
           path: ./apk
 
       - name: Run Android E2E tests (Expo + Maestro)
@@ -103,7 +103,7 @@ jobs:
           disable-animations: true
           script: |
             adb wait-for-device
-            adb install -r ./apk/app-debug.apk
+            adb install -r ./apk/app-release.apk
             maestro --version
             maestro test --format junit --output ./maestro-report.xml maestro/smoke.yaml
 
